@@ -32,23 +32,54 @@ const render = views(__dirname + '/views', {
   map: { html: 'ejs' }
 });
 
+router.post('/orders/paid', parse(), function *(next) {
+	l("### orders/paid")
+	this.body = '';
+	let data = this.request.body;
+
+	let discount = Math.max(0, parseFloat(data.total_discounts));
+	l("t", discount);
+
+	let {metafields} = yield api.get(`/admin/customers/${data.customer.id}/metafields.json`);
+	let field = metafields.filter(m => m.namespace == 'decode' && m.key == 'credit');
+	let credit = 0;
+	if (field.length == 1) credit = field[0].value;
+
+	let newCredit = Math.max(0, credit-discount);
+	l("new credit", newCredit);
+
+	yield api.post(`/admin/customers/${data.customer.id}/metafields.json`, {
+		metafield: {
+			namespace: 'decode',
+			key: 'credit',
+			value: newCredit,
+			value_type: 'integer'
+		}
+	});
+	l("updated")
+
+});
 router.post('/checkout/update', parse(), function *(next) {
-	l("checkout/update")
+	l("### checkout/update")
 	this.body = '';
 	let token = this.request.body.token;
 	let data = yield api.get(`/api/checkouts/${token}.json`);
+	// l(data);
+	// if (data.checkout.order !== null) {
+	// 	l("paid");
+	// 	return;
+	// }
 	let total = parseFloat(data.checkout.subtotal_price);
 	let items = [];
 	if (data.checkout.line_items[0].applied_discounts.length > 0) {
 		return;
 	}
-	l(`/api/customers/${data.checkout.customer_id}/metafields.json`);
 	let {metafields} = yield api.get(`/admin/customers/${data.checkout.customer_id}/metafields.json`);
 
 	let field = metafields.filter(m => m.namespace == 'decode' && m.key == 'credit');
 	let credit = 0;
 	if (field.length == 1) credit = Math.min(total, field[0].value);
-
+	l("credit", credit)
 	data.checkout.line_items.forEach(l => {
 		l.applied_discounts = [{
 			amount: Math.round(credit/data.checkout.line_items.length),
@@ -67,6 +98,22 @@ router.post('/checkout/update', parse(), function *(next) {
 	this.body = 'Ok!';
 });
 
+router.get('/customers', function*() {
+	let {customers} = yield api.get('/admin/customers.json');
+	let out = [];
+	for (let c of customers) {
+		let {metafields} = yield api.get(`/admin/customers/${c.id}/metafields.json`);
+		let field = metafields.filter(m => m.namespace == 'decode' && m.key == 'credit');
+		let credit = 0;
+		if (field.length == 1) credit = field[0].value;
+		out.push({
+			email: c.email,
+			credit: credit
+		})
+	}
+	this.body = out;
+
+})
 app
 	.use(router.routes())
 	.use(router.allowedMethods())
@@ -74,6 +121,8 @@ app
 
 co(function*() {
 	
+	
+
 	let {webhooks} = yield api.get('/admin/webhooks.json');
 
 	l(webhooks.map(wh => wh.address));
@@ -90,11 +139,19 @@ co(function*() {
 		l("Creating WH");
 		yield api.post('/admin/webhooks.json', {
 			"webhook": {
-				"topic": "checkouts\/update",
+				"topic": "checkouts/create",
 				"address": `${process.env.URL}/checkout/update`,
 				"format": "json"
 			}
 		});
+		yield api.post('/admin/webhooks.json', {
+			"webhook": {
+				"topic": "orders/paid",
+				"address": `${process.env.URL}/orders/paid`,
+				"format": "json"
+			}
+		});
+
 		l("All Set!")
 	}
 })
