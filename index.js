@@ -11,11 +11,84 @@ const co = require('co');
 const request = require('request');
 const l = require('prnt');
 
+const STORE_CREDIT = 32254788230;
+
 if (process.env.URL === undefined) {
 	console.error("Set the URL first!");
 	process.exit(1)
 }
 
+function* getLastCheckoutId(userId) {
+	let {metafields} = yield api.get(`/admin/customers/${userId}/metafields.json`);
+	let field = metafields.filter(m => m.namespace == 'decode' && m.key == 'last_checkout');
+	if (!field[0]) return null;
+	return field[0].value;	
+}
+
+function* updateLastCheckoutId(userId, checkoutId) {
+	yield api.post(`/admin/customers/${userId}/metafields.json`, {
+		metafield: {
+			namespace: 'decode',
+			key: 'last_checkout',
+			value: checkoutId,
+			value_type: 'string'
+		}
+	});
+}
+function* updateStoreCredit(userId, credit) {
+	yield api.post(`/admin/customers/${userId}/metafields.json`, {
+		metafield: {
+			namespace: 'decode',
+			key: 'credit',
+			value: credit,
+			value_type: 'integer'
+		}
+	});
+}
+function* getStoreCredit(userId) {
+	let {metafields} = yield api.get(`/admin/customers/${userId}/metafields.json`);
+
+	let field = metafields.filter(m => m.namespace == 'decode' && m.key == 'credit');
+	let credit = 0;
+	if (field.length == 1) credit = field[0].value;
+	return credit
+	
+}
+function* applyStoreCredit(token) {
+	let data = yield api.get(`/api/checkouts/${token}.json`);
+	let total = parseFloat(data.checkout.subtotal_price);
+	l(token);
+	let items = [];
+	let currentStoreCredit =  data.checkout.line_items.filter(i => i.variant_id == STORE_CREDIT)[0];
+
+	if (currentStoreCredit && currentStoreCredit.applied_discounts.length > 0) return;
+	data.checkout.line_items = data.checkout.line_items.filter(i => i.variant_id != STORE_CREDIT);
+	let credit = yield getStoreCredit(data.checkout.customer_id);
+	credit = Math.min(total, credit);
+	l("credit", credit)
+	if (credit == 0) return;
+
+	data.checkout.line_items.forEach(l => {
+		items.push(l);
+	});
+
+	items.push({
+		variant_id: STORE_CREDIT,
+		applied_discounts: [{
+			amount: credit,
+			value_type: "fixed_amount",
+			value: credit,
+			description: "blah",
+			title: "blah"
+		}]
+	});
+	
+	l(yield api.patch(`/api/checkouts/${token}.json`, {
+		checkout: {
+			line_items: items
+		}
+	}))
+}
 const createApi = function (config) {
 	var api = new shopifyAPI(config);
 	api.get = Promise.promisify(api.get, {context: api});
@@ -35,7 +108,7 @@ router.get('/', function*() {
 	this.body = 'Up!';
 })
 router.post('/orders/paid', parse(), function *(next) {
-	l("### orders/paid")
+	l("### orders/paid");
 	this.body = '';
 	let data = this.request.body;
 
@@ -49,75 +122,19 @@ router.post('/orders/paid', parse(), function *(next) {
 
 	let newCredit = Math.max(0, credit-discount);
 	l("new credit", newCredit);
-
-	yield api.post(`/admin/customers/${data.customer.id}/metafields.json`, {
-		metafield: {
-			namespace: 'decode',
-			key: 'credit',
-			value: newCredit,
-			value_type: 'integer'
-		}
-	});
-	l("updated")
+	yield updateStoreCredit(data.customer.id, newCredit);
+	l("updated");
 
 });
 
 router.post('/checkout/update', parse(), function *(next) {
 	l("### checkout/update");
 	this.body = '';
-	let token = this.request.body.token;
-	let data = yield api.get(`/api/checkouts/${token}.json`);
-	// l(data);
-	// if (data.checkout.order !== null) {
-	// 	l("paid");
-	// 	return;
-	// }
-	let total = parseFloat(data.checkout.subtotal_price);
-	let items = [];
-	let currentStoreCredit =  data.checkout.line_items.filter(i => i.variant_id == 32254788230)[0];
-
-	if (currentStoreCredit && currentStoreCredit.applied_discounts.length > 0) return;
-	data.checkout.line_items = data.checkout.line_items.filter(i => i.variant_id != 32254788230);
-	// if (data.checkout.line_items[0].applied_discounts.length > 0) {
-	// 	return;
-	// }
-	let {metafields} = yield api.get(`/admin/customers/${data.checkout.customer_id}/metafields.json`);
-
-	let field = metafields.filter(m => m.namespace == 'decode' && m.key == 'credit');
-	let credit = 0;
-	if (field.length == 1) credit = Math.min(total, field[0].value);
-	l("credit", credit)
-	if (credit == 0) return;
-	data.checkout.line_items.forEach(l => {
-		// l.applied_discounts = [{
-		// 	amount: Math.round(credit/data.checkout.line_items.length),
-		// 	value_type: "fixed_amount",
-		// 	value: Math.round(credit/data.checkout.line_items.length),
-		// 	description: "blah",
-		// 	title: "blah"
-		// }];
-		items.push(l);
-	});
-	items.push({
-		variant_id: '32254788230',
-		applied_discounts: [{
-			amount: credit,
-			value_type: "fixed_amount",
-			value: credit,
-			description: "blah",
-			title: "blah"
-		}]
-	});
-	
-	l(yield api.patch(`/api/checkouts/${token}.json`, {
-		checkout: {
-			line_items: items
-		}
-	}))
+	yield applyStoreCredit(this.request.body.token);
 	this.body = 'Ok!';
 });
 
-router.get('/customers', function*() {
+router.get('/api/customers.json', function*() {
 	let {customers} = yield api.get('/admin/customers.json');
 	let out = [];
 	for (let c of customers) {
@@ -126,23 +143,23 @@ router.get('/customers', function*() {
 		let credit = 0;
 		if (field.length == 1) credit = field[0].value;
 		out.push({
+			id: c.id,
+			first_name: c.first_name,
+			last_name: c.last_name,
 			email: c.email,
 			credit: credit
 		})
 	}
 	this.body = out;
-
-	// yield api.post('/admin/customers/5004906694/metafields.json', {
-	// 	metafield: {
-	// 		namespace: 'decode',
-	// 		key: 'credit',
-	// 		value: 10,
-	// 		value_type: 'integer'
-	// 	}
-	// })
-
-
 });
+
+router.post('/api/customers/:id/credit.json', parse(), function*() {
+	if (!this.params.id) return;
+	let credit = this.request.body.credit || 0;
+	l("Credit", credit);
+	yield updateStoreCredit(this.params.id, this.request.body.credit)
+	this.body = {ok: true};
+})
 
 app
 	.use(router.routes())
@@ -182,7 +199,8 @@ co(function*() {
 
 		l("All Set!")
 	}
-}).catch(l)
+	
+}).catch(l);
 
 app.listen(process.env.PORT || 3000, () => console.log("Server started on", process.env.PORT || 3000));
 
