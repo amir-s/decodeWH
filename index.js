@@ -31,7 +31,9 @@ const api = createApi(cnf.shopifyApi);
 const render = views(__dirname + '/views', {
   map: { html: 'ejs' }
 });
-
+router.get('/', function*() {
+	this.body = 'Up!';
+})
 router.post('/orders/paid', parse(), function *(next) {
 	l("### orders/paid")
 	this.body = '';
@@ -59,8 +61,9 @@ router.post('/orders/paid', parse(), function *(next) {
 	l("updated")
 
 });
+
 router.post('/checkout/update', parse(), function *(next) {
-	l("### checkout/update")
+	l("### checkout/update");
 	this.body = '';
 	let token = this.request.body.token;
 	let data = yield api.get(`/api/checkouts/${token}.json`);
@@ -71,30 +74,46 @@ router.post('/checkout/update', parse(), function *(next) {
 	// }
 	let total = parseFloat(data.checkout.subtotal_price);
 	let items = [];
-	if (data.checkout.line_items[0].applied_discounts.length > 0) {
-		return;
-	}
+	let currentStoreCredit =  data.checkout.line_items.filter(i => i.variant_id == 32254788230)[0];
+
+	if (currentStoreCredit && currentStoreCredit.applied_discounts.length > 0) return;
+	data.checkout.line_items = data.checkout.line_items.filter(i => i.variant_id != 32254788230);
+	// if (data.checkout.line_items[0].applied_discounts.length > 0) {
+	// 	return;
+	// }
 	let {metafields} = yield api.get(`/admin/customers/${data.checkout.customer_id}/metafields.json`);
 
 	let field = metafields.filter(m => m.namespace == 'decode' && m.key == 'credit');
 	let credit = 0;
 	if (field.length == 1) credit = Math.min(total, field[0].value);
 	l("credit", credit)
+	if (credit == 0) return;
 	data.checkout.line_items.forEach(l => {
-		l.applied_discounts = [{
-			amount: Math.round(credit/data.checkout.line_items.length),
-			value_type: "fixed_amount",
-			value: Math.round(credit/data.checkout.line_items.length),
-			description: "blah",
-			title: "blah"
-		}];
+		// l.applied_discounts = [{
+		// 	amount: Math.round(credit/data.checkout.line_items.length),
+		// 	value_type: "fixed_amount",
+		// 	value: Math.round(credit/data.checkout.line_items.length),
+		// 	description: "blah",
+		// 	title: "blah"
+		// }];
 		items.push(l);
 	});
-	yield api.patch(`/api/checkouts/${token}.json`, {
+	items.push({
+		variant_id: '32254788230',
+		applied_discounts: [{
+			amount: credit,
+			value_type: "fixed_amount",
+			value: credit,
+			description: "blah",
+			title: "blah"
+		}]
+	});
+	
+	l(yield api.patch(`/api/checkouts/${token}.json`, {
 		checkout: {
 			line_items: items
 		}
-	})
+	}))
 	this.body = 'Ok!';
 });
 
@@ -113,7 +132,18 @@ router.get('/customers', function*() {
 	}
 	this.body = out;
 
-})
+	// yield api.post('/admin/customers/5004906694/metafields.json', {
+	// 	metafield: {
+	// 		namespace: 'decode',
+	// 		key: 'credit',
+	// 		value: 10,
+	// 		value_type: 'integer'
+	// 	}
+	// })
+
+
+});
+
 app
 	.use(router.routes())
 	.use(router.allowedMethods())
@@ -121,8 +151,6 @@ app
 
 co(function*() {
 	
-	
-
 	let {webhooks} = yield api.get('/admin/webhooks.json');
 
 	l(webhooks.map(wh => wh.address));
@@ -137,24 +165,24 @@ co(function*() {
 		l("WH already exists!")
 	}else {
 		l("Creating WH");
-		yield api.post('/admin/webhooks.json', {
+		l(yield api.post('/admin/webhooks.json', {
 			"webhook": {
-				"topic": "checkouts/create",
+				"topic": "checkouts/update",
 				"address": `${process.env.URL}/checkout/update`,
 				"format": "json"
 			}
-		});
-		yield api.post('/admin/webhooks.json', {
+		}));
+		l(yield api.post('/admin/webhooks.json', {
 			"webhook": {
 				"topic": "orders/paid",
 				"address": `${process.env.URL}/orders/paid`,
 				"format": "json"
 			}
-		});
+		}));
 
 		l("All Set!")
 	}
-})
+}).catch(l)
 
 app.listen(process.env.PORT || 3000, () => console.log("Server started on", process.env.PORT || 3000));
 
