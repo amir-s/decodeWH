@@ -18,6 +18,50 @@ if (process.env.URL === undefined) {
 	process.exit(1)
 }
 
+function jsonp(options) {
+  options = options || {};
+
+  let domain = options.domain || '.default.lan';
+  let callbackName = options.callbackName || 'callback';
+  let iframeHtmlTemplate = ['<!doctype html><html><head><meta http-equiv="Content-Type" content="text/html charset=utf-8"/><script type="text/javascript">document.domain = "' + domain + '";parent.', '(', ');</script></head><body></body></html>'];
+
+  return function* (next) {
+      var ctx = this;
+      yield next;
+
+      let startChunk, endChunk;
+      let callback = ctx.query[callbackName];
+
+      if (!callback) return;
+      if (ctx.body == null) return;
+
+      if (ctx.method === 'POST') {
+        ctx.type = 'html';
+        startChunk = iframeHtmlTemplate[0] + callback + iframeHtmlTemplate[1];
+        endChunk = iframeHtmlTemplate[2];
+      } else {
+        ctx.type = 'text/javascript';
+        startChunk = ';' + callback + '(';
+        endChunk = ');';
+      }
+
+      // handle streams
+      if (typeof ctx.body.pipe === 'function') {
+        ctx.body = ctx.body.pipe(new JSONPStream({
+          startChunk: startChunk,
+          endChunk: endChunk
+        }));
+      } else {
+        ctx.body = startChunk + JSON.stringify(ctx.body, null, ctx.app.jsonSpaces) + endChunk;
+
+        // JSON parse vs eval fix. https://github.com/rack/rack-contrib/pull/37
+        ctx.body = ctx.body.replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+      }
+    };
+};
+
+
+
 function* getLastCheckoutId(userId) {
 	let {metafields} = yield api.get(`/admin/customers/${userId}/metafields.json`);
 	let field = metafields.filter(m => m.namespace == 'decode' && m.key == 'last_checkout');
@@ -193,6 +237,26 @@ router.get('/api/customers.json', function*() {
 	this.body = out;
 });
 
+router.get('/jsonp/customers.json', jsonp(), function*() {
+	l("getting the list");
+	let {customers} = yield api.get('/admin/customers.json');
+	let out = [];
+	for (let c of customers) {
+		let {metafields} = yield api.get(`/admin/customers/${c.id}/metafields.json`);
+		let field = metafields.filter(m => m.namespace == 'decode' && m.key == 'credit');
+		let credit = 0;
+		if (field.length == 1) credit = field[0].value;
+		out.push({
+			id: c.id,
+			first_name: c.first_name,
+			last_name: c.last_name,
+			email: c.email,
+			credit: credit
+		})
+	}
+	this.body = out;
+});
+
 router.get('/api/checkouts.json', function*() {
 	let {customers} = yield api.get('/admin/customers.json');
 	let out = [];
@@ -206,11 +270,18 @@ router.get('/api/checkouts.json', function*() {
 });
 
 router.post('/api/customers/:id/credit.json', parse(), function*() {
-	l("here")
+	l("getting the list")
 	if (!this.params.id) return;
 	let credit = this.request.body.credit || 0;
 	l("Credit", credit);
 	yield updateStoreCredit(this.params.id, this.request.body.credit)
+	this.body = {ok: true};
+})
+
+router.get('/jsonp/customers/:id/:credit', jsonp(), function*() {
+	l("updating", this.params)
+	if (!this.params.id || !this.params.credit) return;
+	yield updateStoreCredit(this.params.id, this.params.credit)
 	this.body = {ok: true};
 })
 
