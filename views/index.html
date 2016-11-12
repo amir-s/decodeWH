@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en" ng-app="decode">
+
+<head>
+
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <title>Store Credit</title>
+
+    <!-- Bootstrap Core CSS -->
+    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://use.fontawesome.com/73e266ba14.js"></script>
+
+    <!-- Custom CSS -->
+    <style>
+    body {
+    }
+    tr.gray {
+        background-color: #eee;
+        color: #aaa;
+    }
+    .pointer {
+        cursor: pointer;
+    }
+    .table-row {
+        height: 33px;
+    }
+    div.tooltip-inner {
+        width: 200px;
+    }
+    </style>
+
+    <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+    <!--[if lt IE 9]>
+        <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+        <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
+    <![endif]-->
+
+    
+</head>
+
+<body>
+
+    <div class="container" ng-controller="MainCtrl as vm">
+        <div class="row">
+            <div class="col-lg-12 text-center">
+                <h1>Store Credit</h1>
+                <p class="lead"></p>
+            </div>
+            <div class="col-lg-12 text-center">
+                <!-- <pre>{{vm | json}}</pre> -->
+                <div class="row text-left">
+                    <div class="col-lg-12">
+                        <div class="panel panel-default">
+                        <div class="panel-heading">
+                        	<i ng-if="vm.busy" class="fa fa-spinner fa-pulse  fa-fw"></i>
+                        	<i ng-if="!vm.busy" class="fa fa-users" aria-hidden="true"></i>
+                        	Customers</div>
+                        <table class="table table-hover table-condensed">
+                            <thead>
+                                <tr>
+                                    <th>First Name</th>
+                                    <th>Last Name</th>
+                                    <th>Email</th>
+                                    <th>Credit</th>
+                                    <th width="1"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr ng-repeat="row in vm.rows">
+                                    <th class="pointer">{{row['first_name']}}</th>
+                                    <th class="pointer">{{row['last_name']}}</th>
+                                    <th class="pointer">{{row['email']}}</th>
+                                    <th class="pointer">
+                                    	<span ng-if="!row.edit">
+	                                    	${{row['credit']}}
+	                                    </span>
+	                                    <span ng-if="row.edit">
+	                                    	<input type="number" ng-model="row['credit']" />
+	                                    </span>
+                                    </th>
+                                    <th class="pointer"><button ng-click="vm.showSaveEdit(row)" class="btn btn-xs">
+                                    	<i ng-hide="row.edit" class="fa fa-pencil-square-o" aria-hidden="true"></i><i ng-show="row.edit" class="fa fa-floppy-o" aria-hidden="true"></i></button>
+                                	</th>
+                                </tr>
+                            </tbody>
+                        </table>
+                        </div>
+                    </div>
+                </div>
+                <!-- <div class="col-lg-12" ng-if="vm.csvFile">
+                    <button ng-click="vm.sendCodes()" class="btn btn-default btn-lg">
+                        <i ng-hide="vm.busy" class="fa fa-upload"></i>
+                        <i ng-show="vm.busy" class="fa fa-cog fa-spin fa-fw"></i>
+                         Submit
+                    </button>
+                </div> -->
+                <br />
+                <br />
+                <br />
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/angularjs/1.5.8/angular.min.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/angular-ui-bootstrap/2.2.0/ui-bootstrap-tpls.js"></script>
+    <script type="text/javascript" src="/app.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+</body>
+
+</html>

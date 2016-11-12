@@ -123,7 +123,7 @@ const render = views(__dirname + '/views', {
 });
 
 router.get('/', function*() {
-	this.body = 'Up!';
+	this.body = yield render('index.html');
 });
 
 router.post('/orders/paid', parse(), function *(next) {
@@ -206,6 +206,7 @@ router.get('/api/checkouts.json', function*() {
 });
 
 router.post('/api/customers/:id/credit.json', parse(), function*() {
+	l("here")
 	if (!this.params.id) return;
 	let credit = this.request.body.credit || 0;
 	l("Credit", credit);
