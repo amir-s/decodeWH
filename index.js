@@ -21,8 +21,8 @@ if (process.env.URL === undefined) {
 function* getLastCheckoutId(userId) {
 	let {metafields} = yield api.get(`/admin/customers/${userId}/metafields.json`);
 	let field = metafields.filter(m => m.namespace == 'decode' && m.key == 'last_checkout');
-	if (!field[0]) return null;
-	return field[0].value;	
+	if (!field[0] || field[0].value == "---") return null;
+	return field[0].value;
 }
 
 function* updateLastCheckoutId(userId, checkoutId) {
@@ -57,16 +57,16 @@ function* getStoreCredit(userId) {
 function* applyStoreCredit(token) {
 	let data = yield api.get(`/api/checkouts/${token}.json`);
 	let total = parseFloat(data.checkout.subtotal_price);
-	l(token);
+	// l(token);
 	let items = [];
 	let currentStoreCredit =  data.checkout.line_items.filter(i => i.variant_id == STORE_CREDIT)[0];
 
-	if (currentStoreCredit && currentStoreCredit.applied_discounts.length > 0) return;
+	if (currentStoreCredit && currentStoreCredit.applied_discounts.length > 0) return data;
 	data.checkout.line_items = data.checkout.line_items.filter(i => i.variant_id != STORE_CREDIT);
 	let credit = yield getStoreCredit(data.checkout.customer_id);
 	credit = Math.min(total, credit);
-	l("credit", credit)
-	if (credit == 0) return;
+	// l("credit", credit)
+	if (credit == 0) return data;
 
 	data.checkout.line_items.forEach(l => {
 		items.push(l);
@@ -83,11 +83,28 @@ function* applyStoreCredit(token) {
 		}]
 	});
 	
-	l(yield api.patch(`/api/checkouts/${token}.json`, {
+	yield api.patch(`/api/checkouts/${token}.json`, {
 		checkout: {
 			line_items: items
 		}
-	}))
+	});
+	return data;
+}
+let ignore = {};
+
+function* undoStoreCredit(token) {
+	l("%% undoing", token);
+	let data = yield api.get(`/api/checkouts/${token}.json`);
+
+	let items = data.checkout.line_items.filter(l => l.variant_id != STORE_CREDIT);
+	ignore[token] = ignore[token] || 0;
+	ignore[token]++;
+	yield api.patch(`/api/checkouts/${token}.json`, {
+		checkout: {
+			line_items: items
+		}
+	})
+	return data;
 }
 const createApi = function (config) {
 	var api = new shopifyAPI(config);
@@ -104,17 +121,17 @@ const api = createApi(cnf.shopifyApi);
 const render = views(__dirname + '/views', {
   map: { html: 'ejs' }
 });
+
 router.get('/', function*() {
 	this.body = 'Up!';
-})
+});
+
 router.post('/orders/paid', parse(), function *(next) {
 	l("### orders/paid");
 	this.body = '';
 	let data = this.request.body;
-
 	let discount = Math.max(0, parseFloat(data.total_discounts));
 	l("t", discount);
-
 	let {metafields} = yield api.get(`/admin/customers/${data.customer.id}/metafields.json`);
 	let field = metafields.filter(m => m.namespace == 'decode' && m.key == 'credit');
 	let credit = 0;
@@ -123,14 +140,37 @@ router.post('/orders/paid', parse(), function *(next) {
 	let newCredit = Math.max(0, credit-discount);
 	l("new credit", newCredit);
 	yield updateStoreCredit(data.customer.id, newCredit);
+
+	let lastCheckout = yield getLastCheckoutId(data.customer.id);
+	l(data.checkout_token, lastCheckout);
+	if (data.checkout_token == lastCheckout) {
+		yield updateLastCheckoutId(data.customer.id, "---");
+	}
 	l("updated");
-
 });
-
 router.post('/checkout/update', parse(), function *(next) {
 	l("### checkout/update");
 	this.body = '';
-	yield applyStoreCredit(this.request.body.token);
+	let currentToken = this.request.body.token;
+	l("current", currentToken);
+	if (ignore[currentToken]) {
+		l("Ignoring!", currentToken);
+		ignore[currentToken]--;
+		// delete ignore[currentToken];
+		return;
+	}
+	let prevToken = yield getLastCheckoutId(this.request.body.customer.id);
+
+	if (prevToken && prevToken != currentToken) {
+		yield undoStoreCredit(prevToken);
+	}
+	let data = yield applyStoreCredit(currentToken);
+
+	// if this is not a paid order
+	if (data.checkout.order == null) {
+		yield updateLastCheckoutId(data.checkout.customer_id, currentToken);
+	}
+
 	this.body = 'Ok!';
 });
 
@@ -148,6 +188,18 @@ router.get('/api/customers.json', function*() {
 			last_name: c.last_name,
 			email: c.email,
 			credit: credit
+		})
+	}
+	this.body = out;
+});
+
+router.get('/api/checkouts.json', function*() {
+	let {customers} = yield api.get('/admin/customers.json');
+	let out = [];
+	for (let c of customers) {
+		out.push({
+			email: c.email,
+			token: yield getLastCheckoutId(c.id)
 		})
 	}
 	this.body = out;
@@ -199,7 +251,10 @@ co(function*() {
 
 		l("All Set!")
 	}
-	
+	// yield undoStoreCredit("d7dced3c60a3bcfd996974929b5a9a2e")
+	// yield undoStoreCredit("1fc664affc9431f83f7d5ea80c73f4c2")
+	// yield updateStoreCredit(5004906694, 100)
+
 }).catch(l);
 
 app.listen(process.env.PORT || 3000, () => console.log("Server started on", process.env.PORT || 3000));
