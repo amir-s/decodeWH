@@ -1,0 +1,37 @@
+{
+  "name": "decode",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently --kill-others \"npm run babel\" \"npm run nodemon\"",
+    "nodemon": "nodemon index.js",
+    "start": "node index.js",
+    "babel": "babel ./public/app --out-dir ./public/dist --watch"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bluebird": "^3.4.6",
+    "co": "^4.6.0",
+    "co-body": "^4.2.0",
+    "co-views": "^2.1.0",
+    "ejs": "^2.5.2",
+    "koa": "^1.2.4",
+    "koa-body": "^1.6.0",
+    "koa-generic-session": "^1.11.3",
+    "koa-passport": "^1.3.0",
+    "koa-router": "^5.4.0",
+    "koa-static": "^2.0.0",
+    "nodemon": "^1.11.0",
+    "passport-shopify": "^0.1.2",
+    "request": "^2.75.0",
+    "request-promise": "^4.1.1",
+    "shopify-node-api": "^1.7.4"
+  },
+  "devDependencies": {
+    "babel-cli": "^6.16.0",
+    "babel-preset-es2015": "^6.16.0",
+    "concurrently": "^3.1.0"
+  }
+}

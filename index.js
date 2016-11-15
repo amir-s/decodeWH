@@ -296,7 +296,7 @@ co(function*() {
 
 	l(webhooks.map(wh => wh.address));
 
-	if (false) {
+	if (!false) {
 		l("DELETING ALL WHS")
 		for (let wh of webhooks) yield api.delete(`/admin/webhooks/${wh.id}.json`);
 		webhooks = [];
